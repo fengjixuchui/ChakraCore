@@ -754,12 +754,6 @@ Lowerer::LowerRange(IR::Instr *instrStart, IR::Instr *instrEnd, bool defaultDoFa
             this->GenerateFastInlineBuiltInMathRandom(instr);
             break;
 
-#ifdef ENABLE_DOM_FAST_PATH
-        case Js::OpCode::DOMFastPathGetter:
-            this->LowerFastInlineDOMFastPathGetter(instr);
-            break;
-#endif
-
         case Js::OpCode::InlineArrayPush:
             this->GenerateFastInlineArrayPush(instr);
             break;
@@ -2963,9 +2957,7 @@ Lowerer::LowerRange(IR::Instr *instrStart, IR::Instr *instrEnd, bool defaultDoFa
 
         case Js::OpCode::NewAwaitObject:
         {
-            IR::Opnd *src1Opnd = instr->UnlinkSrc1();
             LoadScriptContext(instr);
-            m_lowererMD.LoadHelperArgument(instr, src1Opnd);
             m_lowererMD.ChangeToHelperCall(instr, IR::HelperNewAwaitObject);
             break;
         }
@@ -7099,48 +7091,14 @@ Lowerer::LowerStFld(
     if (dst->AsSymOpnd()->IsPropertySymOpnd())
     {
         propertySymOpnd = dst->AsPropertySymOpnd();
-        if (stFldInstr->HasBailOutInfo() && !propertySymOpnd->IsTypeCheckSeqCandidate() && propertySymOpnd->TypeCheckRequired())
+        if (stFldInstr->HasBailOutInfo() && !propertySymOpnd->IsTypeCheckSeqCandidate() &&
+                (propertySymOpnd->CantChangeType() || propertySymOpnd->TypeCheckRequired()))
         {
             IR::Instr * instrBailTarget = stFldInstr->ShareBailOut();
             LowerBailTarget(instrBailTarget);
             doCheckLayout = true;
             bailOutInfo = stFldInstr->GetBailOutInfo();
-            switch (helperMethod)
-            {
-                case IR::HelperOp_PatchPutValue:
-                    helperMethod = IR::HelperOp_PatchPutValueCheckLayout;
-                    break;
-                case IR::HelperOp_PatchPutValuePolymorphic:
-                    helperMethod = IR::HelperOp_PatchPutValuePolymorphicCheckLayout;
-                    break;
-                case IR::HelperOp_PatchPutValueNoLocalFastPath:
-                    helperMethod = IR::HelperOp_PatchPutValueNoLocalFastPathCheckLayout;
-                    break;
-                case IR::HelperOp_PatchPutValueNoLocalFastPathPolymorphic:
-                    helperMethod = IR::HelperOp_PatchPutValueNoLocalFastPathPolymorphicCheckLayout;
-                    break;
-                case IR::HelperOp_PatchPutValueWithThisPtr:
-                    helperMethod = IR::HelperOp_PatchPutValueWithThisPtrCheckLayout;
-                    break;
-                case IR::HelperOp_PatchPutValueWithThisPtrPolymorphic:
-                    helperMethod = IR::HelperOp_PatchPutValueWithThisPtrPolymorphicCheckLayout;
-                    break;
-                case IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPath:
-                    helperMethod = IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPathCheckLayout;
-                    break;
-                case IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPathPolymorphic:
-                    helperMethod = IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPathPolymorphicCheckLayout;
-                    break;
-                case IR::HelperOp_PatchInitValue:
-                    helperMethod = IR::HelperOp_PatchInitValueCheckLayout;
-                    break;
-                case IR::HelperOp_PatchInitValuePolymorphic:
-                    helperMethod = IR::HelperOp_PatchInitValuePolymorphicCheckLayout;
-                    break;
-                default:
-                    AssertOrFailFast(false);
-                    break;
-            }
+            MapStFldHelper(propertySymOpnd, helperMethod, polymorphicHelperMethod);
         }
     }
 
@@ -7206,6 +7164,115 @@ Lowerer::LowerStFld(
     }
 
     return instrPrev;
+}
+
+void
+Lowerer::MapStFldHelper(IR::PropertySymOpnd * propertySymOpnd, IR::JnHelperMethod &helperMethod, IR::JnHelperMethod &polymorphicHelperMethod)
+{
+    Assert(propertySymOpnd->CantChangeType() || propertySymOpnd->TypeCheckRequired());
+
+    if (propertySymOpnd->CantChangeType())
+    {
+        switch (helperMethod)
+        {
+            case IR::HelperOp_PatchPutValue:
+                helperMethod = IR::HelperOp_PatchPutValueCantChangeType;
+                polymorphicHelperMethod = IR::HelperOp_PatchPutValuePolymorphicCantChangeType;
+                break;
+            case IR::HelperOp_PatchPutValuePolymorphic:
+                helperMethod = polymorphicHelperMethod = IR::HelperOp_PatchPutValuePolymorphicCantChangeType;
+                break;
+            case IR::HelperOp_PatchPutValueNoLocalFastPath:
+                helperMethod = IR::HelperOp_PatchPutValueNoLocalFastPathCantChangeType;
+                polymorphicHelperMethod = IR::HelperOp_PatchPutValueNoLocalFastPathPolymorphicCantChangeType;
+                break;
+            case IR::HelperOp_PatchPutValueNoLocalFastPathPolymorphic:
+                helperMethod = polymorphicHelperMethod = IR::HelperOp_PatchPutValueNoLocalFastPathPolymorphicCantChangeType;
+                break;
+            case IR::HelperOp_PatchPutValueWithThisPtr:
+                helperMethod = IR::HelperOp_PatchPutValueWithThisPtrCantChangeType;
+                polymorphicHelperMethod = IR::HelperOp_PatchPutValueWithThisPtrPolymorphicCantChangeType;
+                break;
+            case IR::HelperOp_PatchPutValueWithThisPtrPolymorphic:
+                helperMethod = polymorphicHelperMethod = IR::HelperOp_PatchPutValueWithThisPtrPolymorphicCantChangeType;
+                break;
+            case IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPath:
+                helperMethod = IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPathCantChangeType;
+                polymorphicHelperMethod = IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPathPolymorphicCantChangeType;
+                break;
+            case IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPathPolymorphic:
+                helperMethod = polymorphicHelperMethod = IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPathPolymorphicCantChangeType;
+                break;
+            case IR::HelperOp_PatchInitValue:
+                helperMethod = IR::HelperOp_PatchInitValueCantChangeType;
+                polymorphicHelperMethod = IR::HelperOp_PatchInitValuePolymorphicCantChangeType;
+                break;
+            case IR::HelperOp_PatchInitValuePolymorphic:
+                helperMethod = polymorphicHelperMethod = IR::HelperOp_PatchInitValuePolymorphicCantChangeType;
+                break;
+            case IR::HelperOp_PatchPutRootValue:
+            case IR::HelperOp_PatchPutRootValuePolymorphic:
+            case IR::HelperOp_PatchPutRootValueNoLocalFastPath:
+            case IR::HelperOp_PatchPutRootValueNoLocalFastPathPolymorphic:
+                // No helper method change is needed here, because the global object doesn't participate in final type opt, so it can't alias
+                // an object that does.
+                break;
+            default:
+                AssertOrFailFast(false);
+                break;
+        }
+    }
+    else
+    {
+        switch (helperMethod)
+        {
+            case IR::HelperOp_PatchPutValue:
+                helperMethod = IR::HelperOp_PatchPutValueCheckLayout;
+                polymorphicHelperMethod = IR::HelperOp_PatchPutValuePolymorphicCheckLayout;
+                break;
+            case IR::HelperOp_PatchPutValuePolymorphic:
+                helperMethod = polymorphicHelperMethod = IR::HelperOp_PatchPutValuePolymorphicCheckLayout;
+                break;
+            case IR::HelperOp_PatchPutValueNoLocalFastPath:
+                helperMethod = IR::HelperOp_PatchPutValueNoLocalFastPathCheckLayout;
+                polymorphicHelperMethod = IR::HelperOp_PatchPutValueNoLocalFastPathPolymorphicCheckLayout;
+                break;
+            case IR::HelperOp_PatchPutValueNoLocalFastPathPolymorphic:
+                helperMethod = polymorphicHelperMethod = IR::HelperOp_PatchPutValueNoLocalFastPathPolymorphicCheckLayout;
+                break;
+            case IR::HelperOp_PatchPutValueWithThisPtr:
+                helperMethod = IR::HelperOp_PatchPutValueWithThisPtrCheckLayout;
+                polymorphicHelperMethod = IR::HelperOp_PatchPutValueWithThisPtrPolymorphicCheckLayout;
+                break;
+            case IR::HelperOp_PatchPutValueWithThisPtrPolymorphic:
+                helperMethod = polymorphicHelperMethod = IR::HelperOp_PatchPutValueWithThisPtrPolymorphicCheckLayout;
+                break;
+            case IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPath:
+                helperMethod = IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPathCheckLayout;
+                polymorphicHelperMethod = IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPathPolymorphicCheckLayout;
+                break;
+            case IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPathPolymorphic:
+                helperMethod = polymorphicHelperMethod = IR::HelperOp_PatchPutValueWithThisPtrNoLocalFastPathPolymorphicCheckLayout;
+                break;
+            case IR::HelperOp_PatchInitValue:
+                helperMethod = IR::HelperOp_PatchInitValueCheckLayout;
+                polymorphicHelperMethod = IR::HelperOp_PatchInitValuePolymorphicCheckLayout;
+                break;
+            case IR::HelperOp_PatchInitValuePolymorphic:
+                helperMethod = polymorphicHelperMethod = IR::HelperOp_PatchInitValuePolymorphicCheckLayout;
+                break;
+            case IR::HelperOp_PatchPutRootValue:
+            case IR::HelperOp_PatchPutRootValuePolymorphic:
+            case IR::HelperOp_PatchPutRootValueNoLocalFastPath:
+            case IR::HelperOp_PatchPutRootValueNoLocalFastPathPolymorphic:
+                // No helper method change is needed here, because the global object doesn't participate in final type opt, so it can't alias
+                // an object that does.
+                break;
+            default:
+                AssertOrFailFast(false);
+                break;
+        }
+    }
 }
 
 IR::Instr* Lowerer::GenerateCompleteStFld(IR::Instr* instr, bool emitFastPath, IR::JnHelperMethod monoHelperAfterFastPath, IR::JnHelperMethod polyHelperAfterFastPath,
@@ -21166,61 +21233,6 @@ Lowerer::GenerateFastInlineStringReplace(IR::Instr * instr)
 
     return true;
 }
-
-#ifdef ENABLE_DOM_FAST_PATH
-/*
-    Lower the DOMFastPathGetter opcode
-    We have inliner generated bytecode:
-    (dst)helpArg1: ExtendArg_A (src1)thisObject (src2)null
-    (dst)helpArg2: ExtendArg_A (src1)funcObject (src2)helpArg1
-    method: DOMFastPathGetter (src1)HelperCall (src2)helpArg2
-
-    We'll convert it to a JavascriptFunction entry method call:
-    CALL Helper funcObject CallInfo(CallFlags_Value, 3) thisObj
-*/
-void
-Lowerer::LowerFastInlineDOMFastPathGetter(IR::Instr* instr)
-{
-    IR::Opnd* helperOpnd = instr->UnlinkSrc1();
-    Assert(helperOpnd->IsHelperCallOpnd());
-
-    IR::Opnd *linkOpnd = instr->UnlinkSrc2();
-    Assert(linkOpnd->IsRegOpnd());
-
-    IR::Instr* prevInstr = linkOpnd->AsRegOpnd()->m_sym->m_instrDef;
-    Assert(prevInstr->m_opcode == Js::OpCode::ExtendArg_A);
-    IR::Opnd* funcObj = prevInstr->GetSrc1();
-
-    Assert(funcObj->IsRegOpnd());
-    // If the Extended_arg was CSE's across a loop or hoisted out of a loop,
-    // adding a new reference down here might cause funcObj to now be liveOnBackEdge.
-    // Use the addToLiveOnBackEdgeSyms bit vector to add it to a loop if we encounter one.
-    // We'll clear it once we reach the Extended arg.
-    this->addToLiveOnBackEdgeSyms->Set(funcObj->AsRegOpnd()->m_sym->m_id);
-
-    Assert(prevInstr->GetSrc2() != nullptr);
-    prevInstr = prevInstr->GetSrc2()->AsRegOpnd()->m_sym->m_instrDef;
-    Assert(prevInstr->m_opcode == Js::OpCode::ExtendArg_A);
-    IR::Opnd* thisObj = prevInstr->GetSrc1();
-    Assert(prevInstr->GetSrc2() == nullptr);
-
-    Assert(thisObj->IsRegOpnd());
-    this->addToLiveOnBackEdgeSyms->Set(thisObj->AsRegOpnd()->m_sym->m_id);
-
-    const auto info = Lowerer::MakeCallInfoConst(Js::CallFlags_Value, 1, m_func);
-
-    m_lowererMD.LoadHelperArgument(instr, thisObj);
-    m_lowererMD.LoadHelperArgument(instr, info);
-    m_lowererMD.LoadHelperArgument(instr, funcObj);
-
-    instr->m_opcode = Js::OpCode::Call;
-
-    IR::HelperCallOpnd *helperCallOpnd = Lowerer::CreateHelperCallOpnd(helperOpnd->AsHelperCallOpnd()->m_fnHelper, 3, m_func);
-    instr->SetSrc1(helperCallOpnd);
-
-    m_lowererMD.LowerCall(instr, 3);  // we have funcobj, callInfo, and this.
-}
-#endif
 
 void
 Lowerer::GenerateFastInlineArrayPush(IR::Instr * instr)

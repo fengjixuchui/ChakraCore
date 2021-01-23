@@ -1794,6 +1794,10 @@ void ByteCodeGenerator::FinalizeRegisters(FuncInfo* funcInfo, Js::FunctionBody* 
     // NOTE: The FB expects the yield reg to be the final non-temp.
     if (byteCodeFunction->IsCoroutine())
     {
+        if (funcInfo->root->IsAsync())
+        {
+            funcInfo->AssignAwaitRegister();
+        }
         funcInfo->AssignYieldRegister();
     }
 
@@ -2164,7 +2168,7 @@ void ByteCodeGenerator::LoadThisObject(FuncInfo *funcInfo, bool thisLoadedFromPa
     Assert(thisSym);
     Assert(!funcInfo->IsLambda());
 
-    if (this->scriptContext->GetConfig()->IsES6ClassAndExtendsEnabled() && funcInfo->IsClassConstructor())
+    if (funcInfo->IsClassConstructor())
     {
         // Derived class constructors initialize 'this' to be Undecl
         //   - we'll check this value during a super call and during 'this' access
@@ -2902,6 +2906,11 @@ void ByteCodeGenerator::EmitOneFunction(ParseNodeFnc *pnodeFnc)
         // For now, emit all constant loads at top of function (should instead put in closest dominator of uses).
         LoadAllConstants(funcInfo);
         HomeArguments(funcInfo);
+
+        if (funcInfo->root->IsAsync())
+        {
+            Writer()->Reg1(Js::OpCode::NewAwaitObject, funcInfo->awaitRegister);
+        }
 
         if (!funcInfo->IsBodyAndParamScopeMerged())
         {
@@ -7273,7 +7282,6 @@ void EmitAssignment(
 
     case knopObjectPattern:
     {
-        Assert(byteCodeGenerator->IsES6DestructuringEnabled());
         // Copy the rhs value to be the result of the assignment if needed.
         if (asgnNode != nullptr)
         {
@@ -7284,7 +7292,6 @@ void EmitAssignment(
 
     case knopArrayPattern:
     {
-        Assert(byteCodeGenerator->IsES6DestructuringEnabled());
         // Copy the rhs value to be the result of the assignment if needed.
         if (asgnNode != nullptr)
         {
@@ -9583,8 +9590,7 @@ void EmitLoop(
         Emit(body, byteCodeGenerator, funcInfo, fReturnValue);
         funcInfo->ReleaseLoc(body);
 
-        if (byteCodeGenerator->IsES6ForLoopSemanticsEnabled() &&
-            forLoopBlock != nullptr)
+        if (forLoopBlock != nullptr)
         {
             CloneEmitBlock(forLoopBlock, byteCodeGenerator, funcInfo);
         }
@@ -9757,10 +9763,7 @@ void EmitForInOfLoopBody(ParseNodeForInOrForOf *loopNode,
         sym->SetNeedDeclaration(false);
     }
 
-    if (byteCodeGenerator->IsES6ForLoopSemanticsEnabled())
-    {
-        BeginEmitBlock(loopNode->pnodeBlock, byteCodeGenerator, funcInfo);
-    }
+    BeginEmitBlock(loopNode->pnodeBlock, byteCodeGenerator, funcInfo);
 
     EmitAssignment(nullptr, loopNode->pnodeLval, loopNode->itemLocation, byteCodeGenerator, funcInfo);
 
@@ -9772,10 +9775,7 @@ void EmitForInOfLoopBody(ParseNodeForInOrForOf *loopNode,
     Emit(loopNode->pnodeBody, byteCodeGenerator, funcInfo, fReturnValue);
     funcInfo->ReleaseLoc(loopNode->pnodeBody);
 
-    if (byteCodeGenerator->IsES6ForLoopSemanticsEnabled())
-    {
-        EndEmitBlock(loopNode->pnodeBlock, byteCodeGenerator, funcInfo);
-    }
+    EndEmitBlock(loopNode->pnodeBlock, byteCodeGenerator, funcInfo);
 
     funcInfo->ReleaseTmpRegister(loopNode->itemLocation);
     if (loopNode->emitLabels)
@@ -9828,11 +9828,6 @@ void EmitForIn(ParseNodeForInOrForOf *loopNode,
     byteCodeGenerator->Writer()->ExitLoop(loopId);
 
     funcInfo->ReleaseForInLoopLevel(forInLoopLevel);
-
-    if (!byteCodeGenerator->IsES6ForLoopSemanticsEnabled())
-    {
-        EndEmitBlock(loopNode->pnodeBlock, byteCodeGenerator, funcInfo);
-    }
 }
 
 void EmitForInOrForOf(ParseNodeForInOrForOf *loopNode, ByteCodeGenerator *byteCodeGenerator, FuncInfo *funcInfo, BOOL fReturnValue)
@@ -9858,8 +9853,7 @@ void EmitForInOrForOf(ParseNodeForInOrForOf *loopNode, ByteCodeGenerator *byteCo
     // (break every time on the loop back edge) and correct display of current statement under debugger.
     // See WinBlue 231880 for details.
     byteCodeGenerator->Writer()->RecordStatementAdjustment(Js::FunctionBody::SAT_All);
-    if (byteCodeGenerator->IsES6ForLoopSemanticsEnabled() &&
-        loopNode->pnodeBlock->HasBlockScopedContent())
+    if (loopNode->pnodeBlock->HasBlockScopedContent())
     {
         byteCodeGenerator->Writer()->RecordForInOrOfCollectionScope();
     }
@@ -9874,26 +9868,17 @@ void EmitForInOrForOf(ParseNodeForInOrForOf *loopNode, ByteCodeGenerator *byteCo
     Emit(loopNode->pnodeObj, byteCodeGenerator, funcInfo, false); // evaluate collection expression
     funcInfo->ReleaseLoc(loopNode->pnodeObj);
 
-    if (byteCodeGenerator->IsES6ForLoopSemanticsEnabled())
+    EndEmitBlock(loopNode->pnodeBlock, byteCodeGenerator, funcInfo);
+    if (loopNode->pnodeBlock->scope != nullptr)
     {
-        EndEmitBlock(loopNode->pnodeBlock, byteCodeGenerator, funcInfo);
-        if (loopNode->pnodeBlock->scope != nullptr)
-        {
-            loopNode->pnodeBlock->scope->ForEachSymbol([](Symbol *sym) {
-                sym->SetIsTrackedForDebugger(false);
-            });
-        }
+        loopNode->pnodeBlock->scope->ForEachSymbol([](Symbol *sym) {
+            sym->SetIsTrackedForDebugger(false);
+        });
     }
 
     if (isForIn)
     {
         EmitForIn(loopNode, loopEntrance, continuePastLoop, byteCodeGenerator, funcInfo, fReturnValue);
-
-        if (!byteCodeGenerator->IsES6ForLoopSemanticsEnabled())
-        {
-            EndEmitBlock(loopNode->pnodeBlock, byteCodeGenerator, funcInfo);
-        }
-
         return;
     }
 
@@ -10041,11 +10026,6 @@ void EmitForInOrForOf(ParseNodeForInOrForOf *loopNode, ByteCodeGenerator *byteCo
         byteCodeGenerator,
         funcInfo,
         isForAwaitOf);
-
-    if (!byteCodeGenerator->IsES6ForLoopSemanticsEnabled())
-    {
-        EndEmitBlock(loopNode->pnodeBlock, byteCodeGenerator, funcInfo);
-    }
 }
 
 void EmitArrayLiteral(ParseNode *pnode, ByteCodeGenerator *byteCodeGenerator, FuncInfo *funcInfo)
@@ -10576,17 +10556,18 @@ void EmitAwait(
     ByteCodeGenerator* byteCodeGenerator,
     FuncInfo* funcInfo)
 {
-    // OPTIMIZE: We should only have to allocate this object once before any awaits.
-    // Awaiting can merely set the value property of that object.
 
-    auto* writer = byteCodeGenerator->Writer();
-    writer->Reg2(Js::OpCode::NewAwaitObject, funcInfo->yieldRegister, inputReg);
-
+    auto writer = byteCodeGenerator->Writer();
+    writer->PatchableProperty(
+        Js::OpCode::StFld,
+        inputReg,
+        funcInfo->awaitRegister,
+        funcInfo->FindOrAddInlineCacheId(funcInfo->awaitRegister, Js::PropertyIds::value, false, true));
     Js::ByteCodeLabel resumeNormal = writer->DefineLabel();
 
     EmitYieldAndResume(
         resultReg,
-        funcInfo->yieldRegister,
+        funcInfo->awaitRegister,
         resumeNormal,
         Js::Constants::NoByteCodeLabel,
         byteCodeGenerator,
@@ -11655,7 +11636,7 @@ void Emit(ParseNode* pnode, ByteCodeGenerator* byteCodeGenerator, FuncInfo* func
             EmitAssignment(nullptr, lhs, rhs->location, byteCodeGenerator, funcInfo);
         }
         funcInfo->ReleaseLoc(rhs);
-        if (!(byteCodeGenerator->IsES6DestructuringEnabled() && (lhs->IsPattern())))
+        if (!lhs->IsPattern())
         {
             funcInfo->ReleaseReference(lhs);
         }
@@ -11749,6 +11730,32 @@ void Emit(ParseNode* pnode, ByteCodeGenerator* byteCodeGenerator, FuncInfo* func
         // optimizing the previous version where we had a dest for each level
         funcInfo->AcquireLoc(pnode);
         EmitGeneratingBooleanExpression(pnode, doneLabel, true, doneLabel, true, pnode->location, false, byteCodeGenerator, funcInfo);
+        byteCodeGenerator->Writer()->MarkLabel(doneLabel);
+        ENDSTATEMENET_IFTOPLEVEL(isTopLevel, pnode);
+        break;
+    }
+    // The Coalescing operator resolves to the left hand side if it is not null or undefined
+    // In that case the right hand side is not evaluated
+    // If the left hand side is null or undefined it resolves to the right hand side
+    // PTNODE(knopCoalesce     , "??"        ,None    ,Bin  ,fnopBin)
+    case knopCoalesce:
+    {
+        STARTSTATEMENET_IFTOPLEVEL(isTopLevel, pnode);
+        Js::ByteCodeLabel doneLabel = byteCodeGenerator->Writer()->DefineLabel();
+        funcInfo->AcquireLoc(pnode);
+
+        // LHS
+        Emit(pnode->AsParseNodeBin()->pnode1, byteCodeGenerator, funcInfo, false);
+        byteCodeGenerator->Writer()->Reg2(Js::OpCode::Ld_A, pnode->location, pnode->AsParseNodeBin()->pnode1->location);
+        funcInfo->ReleaseLoc(pnode->AsParseNodeBin()->pnode1);
+        // check for null/undefined with != null
+        byteCodeGenerator->Writer()->BrReg2(Js::OpCode::BrNeq_A, doneLabel, pnode->location, funcInfo->nullConstantRegister);
+
+        // RHS
+        Emit(pnode->AsParseNodeBin()->pnode2, byteCodeGenerator, funcInfo, false);
+        byteCodeGenerator->Writer()->Reg2(Js::OpCode::Ld_A_ReuseLoc, pnode->location, pnode->AsParseNodeBin()->pnode2->location);
+        funcInfo->ReleaseLoc(pnode->AsParseNodeBin()->pnode2);
+
         byteCodeGenerator->Writer()->MarkLabel(doneLabel);
         ENDSTATEMENET_IFTOPLEVEL(isTopLevel, pnode);
         break;
@@ -11977,10 +11984,9 @@ void Emit(ParseNode* pnode, ByteCodeGenerator* byteCodeGenerator, FuncInfo* func
             BeginEmitBlock(pnodeFor->pnodeBlock, byteCodeGenerator, funcInfo);
             Emit(pnodeFor->pnodeInit, byteCodeGenerator, funcInfo, false);
             funcInfo->ReleaseLoc(pnodeFor->pnodeInit);
-            if (byteCodeGenerator->IsES6ForLoopSemanticsEnabled())
-            {
-                CloneEmitBlock(pnodeFor->pnodeBlock, byteCodeGenerator, funcInfo);
-            }
+
+            CloneEmitBlock(pnodeFor->pnodeBlock, byteCodeGenerator, funcInfo);
+
             EmitLoop(pnodeFor,
                 pnodeFor->pnodeCond,
                 pnodeFor->pnodeBody,

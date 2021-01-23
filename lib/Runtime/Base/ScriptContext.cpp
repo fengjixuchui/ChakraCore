@@ -80,7 +80,6 @@ namespace Js
 #endif
 #if ENABLE_NATIVE_CODEGEN
         nativeCodeGen(nullptr),
-        m_domFastPathHelperMap(nullptr),
         m_remoteScriptContextAddr(nullptr),
         jitFuncRangeCache(nullptr),
 #endif
@@ -366,9 +365,6 @@ namespace Js
         intConstPropsOnGlobalObject = Anew(GeneralAllocator(), PropIdSetForConstProp, GeneralAllocator());
         intConstPropsOnGlobalUserObject = Anew(GeneralAllocator(), PropIdSetForConstProp, GeneralAllocator());
 
-#if ENABLE_NATIVE_CODEGEN
-        m_domFastPathHelperMap = HeapNew(JITDOMFastPathHelperMap, &HeapAllocator::Instance, 17);
-#endif
 #ifdef ENABLE_SCRIPT_DEBUGGING
         this->debugContext = HeapNew(DebugContext, this);
 #endif
@@ -424,13 +420,6 @@ namespace Js
     {
         // Take etw rundown lock on this thread context. We are going to change/destroy this scriptContext.
         AutoCriticalSection autocs(GetThreadContext()->GetFunctionBodyLock());
-
-#if ENABLE_NATIVE_CODEGEN
-        if (m_domFastPathHelperMap != nullptr)
-        {
-            HeapDelete(m_domFastPathHelperMap);
-        }
-#endif
 
         // TODO: Can we move this on Close()?
         ClearHostScriptContext();
@@ -1030,7 +1019,7 @@ namespace Js
         Output::Print(_u("    Object                         %8d   %8d\n"), typeCount[TypeIds_Object], instanceCount[TypeIds_Object]);
         Output::Print(_u("    Function                       %8d   %8d\n"), typeCount[TypeIds_Function], instanceCount[TypeIds_Function]);
         Output::Print(_u("    Array                          %8d   %8d\n"), typeCount[TypeIds_Array], instanceCount[TypeIds_Array]);
-        Output::Print(_u("    Date                           %8d   %8d\n"), typeCount[TypeIds_Date], instanceCount[TypeIds_Date] + instanceCount[TypeIds_WinRTDate]);
+        Output::Print(_u("    Date                           %8d   %8d\n"), typeCount[TypeIds_Date], instanceCount[TypeIds_Date]);
         Output::Print(_u("    Symbol                         %8d   %8d\n"), typeCount[TypeIds_Symbol], instanceCount[TypeIds_Symbol]);
         Output::Print(_u("    RegEx                          %8d   %8d\n"), typeCount[TypeIds_RegEx], instanceCount[TypeIds_RegEx]);
         Output::Print(_u("    Error                          %8d   %8d\n"), typeCount[TypeIds_Error], instanceCount[TypeIds_Error]);
@@ -1053,7 +1042,6 @@ namespace Js
         Output::Print(_u("    DataView                       %8d   %8d\n"), typeCount[TypeIds_DataView], instanceCount[TypeIds_DataView]);
         Output::Print(_u("    ModuleRoot                     %8d   %8d\n"), typeCount[TypeIds_ModuleRoot], instanceCount[TypeIds_ModuleRoot]);
         Output::Print(_u("    HostObject                     %8d   %8d\n"), typeCount[TypeIds_HostObject], instanceCount[TypeIds_HostObject]);
-        Output::Print(_u("    VariantDate                    %8d   %8d\n"), typeCount[TypeIds_VariantDate], instanceCount[TypeIds_VariantDate]);
         Output::Print(_u("    HostDispatch                   %8d   %8d\n"), typeCount[TypeIds_HostDispatch], instanceCount[TypeIds_HostDispatch]);
         Output::Print(_u("    Arguments                      %8d   %8d\n"), typeCount[TypeIds_Arguments], instanceCount[TypeIds_Arguments]);
         Output::Print(_u("    ActivationObject               %8d   %8d\n"), typeCount[TypeIds_ActivationObject], instanceCount[TypeIds_ActivationObject]);
@@ -3856,21 +3844,6 @@ ExitTempAllocator:
 
         } autoRestore(this->GetThreadContext());
 
-        if (!Js::Configuration::Global.EnableJitInDebugMode())
-        {
-            if (attach)
-            {
-                // Now force nonative, so the job will not be put in jit queue.
-                ForceNoNative();
-            }
-            else
-            {
-                // Take the runtime out of interpreted mode so the JIT
-                // queue can be exercised.
-                this->ForceNative();
-            }
-        }
-
         // Invalidate all the caches.
         this->threadContext->InvalidateAllProtoInlineCaches();
         this->threadContext->InvalidateAllStoreFieldInlineCaches();
@@ -4505,11 +4478,6 @@ ExitTempAllocator:
         {
             forceNoNative = this->IsInterpreted();
         }
-        else if (!Js::Configuration::Global.EnableJitInDebugMode())
-        {
-            forceNoNative = true;
-            this->ForceNoNative();
-        }
         return forceNoNative;
     }
 
@@ -4937,7 +4905,7 @@ ExitTempAllocator:
             if (cachedFunctionId != functionPropertyId)
             {
                 // This is the scenario where we could be using same function for multiple builtin functions
-                // e.g. Error.toString, WinRTError.toString etc.
+                // e.g. Error.toString etc.
                 // We would ignore these extra entrypoints because while profiling, identifying which object's toString is too costly for its worth
                 return S_OK;
             }
@@ -5651,24 +5619,6 @@ ScriptContext::GetJitFuncRangeCache()
     {
         return (intptr_t)this;
     }
-
-#if ENABLE_NATIVE_CODEGEN
-    void ScriptContext::AddToDOMFastPathHelperMap(intptr_t funcInfoAddr, IR::JnHelperMethod helper)
-    {
-        m_domFastPathHelperMap->Add(funcInfoAddr, helper);
-    }
-
-    IR::JnHelperMethod ScriptContext::GetDOMFastPathHelper(intptr_t funcInfoAddr)
-    {
-        IR::JnHelperMethod helper = IR::HelperInvalid;
-
-        m_domFastPathHelperMap->LockResize();
-        m_domFastPathHelperMap->TryGetValue(funcInfoAddr, &helper);
-        m_domFastPathHelperMap->UnlockResize();
-
-        return helper;
-    }
-#endif
 
     intptr_t ScriptContext::GetVTableAddress(VTableValue vtableType) const
     {

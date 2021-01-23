@@ -98,7 +98,6 @@ BUILTIN(JavascriptDate, GetUTCMilliseconds, EntryGetUTCMilliseconds, FunctionInf
 BUILTIN(JavascriptDate, GetUTCMinutes, EntryGetUTCMinutes, FunctionInfo::ErrorOnNew)
 BUILTIN(JavascriptDate, GetUTCMonth, EntryGetUTCMonth, FunctionInfo::ErrorOnNew)
 BUILTIN(JavascriptDate, GetUTCSeconds, EntryGetUTCSeconds, FunctionInfo::ErrorOnNew)
-BUILTIN(JavascriptDate, GetVarDate, EntryGetVarDate, FunctionInfo::ErrorOnNew)
 BUILTIN(JavascriptDate, Now, EntryNow, FunctionInfo::ErrorOnNew)
 BUILTIN(JavascriptDate, Parse, EntryParse, FunctionInfo::ErrorOnNew)
 BUILTIN(JavascriptDate, SetDate, EntrySetDate, FunctionInfo::ErrorOnNew)
@@ -139,9 +138,6 @@ BUILTIN(JavascriptError, NewURIErrorInstance, NewURIErrorInstance, FunctionInfo:
 BUILTIN(JavascriptError, NewWebAssemblyCompileErrorInstance, NewWebAssemblyCompileErrorInstance, FunctionInfo::None)
 BUILTIN(JavascriptError, NewWebAssemblyRuntimeErrorInstance, NewWebAssemblyRuntimeErrorInstance, FunctionInfo::None)
 BUILTIN(JavascriptError, NewWebAssemblyLinkErrorInstance, NewWebAssemblyLinkErrorInstance, FunctionInfo::None)
-#ifdef ENABLE_PROJECTION
-BUILTIN(JavascriptError, NewWinRTErrorInstance, NewWinRTErrorInstance, FunctionInfo::None)
-#endif
 BUILTIN(JavascriptError, ToString, EntryToString, FunctionInfo::ErrorOnNew | FunctionInfo::HasNoSideEffect)
 BUILTIN(JavascriptExternalFunction, ExternalFunctionThunk, ExternalFunctionThunk, FunctionInfo::None)
 BUILTIN(JavascriptExternalFunction, WrappedFunctionThunk, WrappedFunctionThunk, FunctionInfo::None)

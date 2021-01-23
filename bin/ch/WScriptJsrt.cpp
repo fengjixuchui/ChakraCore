@@ -1,5 +1,6 @@
 //-------------------------------------------------------------------------------------------------------
 // Copyright (C) Microsoft Corporation and contributors. All rights reserved.
+// Copyright (c) 2021 ChakraCore Project Contributors. All rights reserved.
 // Licensed under the MIT license. See LICENSE.txt file in the project root for full license information.
 //-------------------------------------------------------------------------------------------------------
 #include "stdafx.h"
@@ -600,30 +601,6 @@ Error:
     return returnValue;
 }
 
-JsErrorCode WScriptJsrt::InitializeModuleInfo(JsModuleRecord moduleRecord)
-{
-    JsErrorCode errorCode = JsNoError;
-    errorCode = ChakraRTInterface::JsSetModuleHostInfo(moduleRecord, JsModuleHostInfo_FetchImportedModuleCallback, (void*)WScriptJsrt::FetchImportedModule);
-
-    if (errorCode == JsNoError)
-    {
-        errorCode = ChakraRTInterface::JsSetModuleHostInfo(moduleRecord, JsModuleHostInfo_FetchImportedModuleFromScriptCallback, (void*)WScriptJsrt::FetchImportedModuleFromScript);
-
-        if (errorCode == JsNoError)
-        {
-            errorCode = ChakraRTInterface::JsSetModuleHostInfo(moduleRecord, JsModuleHostInfo_NotifyModuleReadyCallback, (void*)WScriptJsrt::NotifyModuleReadyCallback);
-
-            if (errorCode == JsNoError)
-            {
-                errorCode = ChakraRTInterface::JsSetModuleHostInfo(moduleRecord, JsModuleHostInfo_InitializeImportMetaCallback, (void*)WScriptJsrt::InitializeImportMetaCallback);
-            }
-        }
-    }
-
-    IfJsrtErrorFailLogAndRetErrorCode(errorCode);
-    return JsNoError;
-}
-
 void WScriptJsrt::GetDir(LPCSTR fullPathNarrow, std::string *fullDirNarrow)
 {
     char fileDrive[_MAX_DRIVE];
@@ -666,10 +643,6 @@ JsErrorCode WScriptJsrt::LoadModuleFromString(LPCSTR fileName, LPCSTR fileConten
         {
             errorCode = ChakraRTInterface::JsInitializeModuleRecord(
                 nullptr, specifier, &requestModule);
-        }
-        if (errorCode == JsNoError)
-        {
-            errorCode = InitializeModuleInfo(requestModule);
         }
         if (errorCode == JsNoError)
         {
@@ -1220,7 +1193,11 @@ bool WScriptJsrt::Initialize()
     IfJsrtErrorFail(CreatePropertyIdFromString("console", &consoleName), false);
     IfJsrtErrorFail(ChakraRTInterface::JsSetProperty(global, consoleName, console, true), false);
 
-    IfJsrtErrorFail(InitializeModuleInfo(nullptr), false);
+    IfJsrtErrorFail(ChakraRTInterface::JsSetModuleHostInfo(nullptr, JsModuleHostInfo_FetchImportedModuleCallback, (void*)WScriptJsrt::FetchImportedModule), false);
+    IfJsrtErrorFail(ChakraRTInterface::JsSetModuleHostInfo(nullptr, JsModuleHostInfo_FetchImportedModuleFromScriptCallback, (void*)WScriptJsrt::FetchImportedModuleFromScript), false);
+    IfJsrtErrorFail(ChakraRTInterface::JsSetModuleHostInfo(nullptr, JsModuleHostInfo_NotifyModuleReadyCallback, (void*)WScriptJsrt::NotifyModuleReadyCallback), false);
+    IfJsrtErrorFail(ChakraRTInterface::JsSetModuleHostInfo(nullptr, JsModuleHostInfo_InitializeImportMetaCallback, (void*)WScriptJsrt::InitializeImportMetaCallback), false);
+    IfJsrtErrorFail(ChakraRTInterface::JsSetModuleHostInfo(nullptr, JsModuleHostInfo_ReportModuleCompletionCallback, (void*)WScriptJsrt::ReportModuleCompletionCallback), false);
 
     // When the command-line argument `-Test262` is set,
     // WScript will have the extra support API below and $262 will be
@@ -1787,11 +1764,26 @@ Error:
     return returnValue;
 }
 
-bool WScriptJsrt::PrintException(LPCSTR fileName, JsErrorCode jsErrorCode)
+bool WScriptJsrt::PrintException(LPCSTR fileName, JsErrorCode jsErrorCode, JsValueRef exception)
 {
     LPCWSTR errorTypeString = ConvertErrorCodeToMessage(jsErrorCode);
-    JsValueRef exception;
-    ChakraRTInterface::JsGetAndClearException(&exception);
+    JsValueRef metaData = JS_INVALID_REFERENCE;
+
+    if (exception == nullptr)
+    {
+        if (ChakraRTInterface::JsGetAndClearExceptionWithMetadata(&metaData) == JsNoError)
+        {
+            JsPropertyIdRef exceptionId = JS_INVALID_REFERENCE;
+            IfJsrtErrorFail(CreatePropertyIdFromString("exception", &exceptionId), false);
+            IfJsrtErrorFail(ChakraRTInterface::JsGetProperty(metaData, exceptionId, &exception), false);
+        }
+        else
+        {
+            IfJsrtErrorFail(ChakraRTInterface::JsGetAndClearException(&exception), false);
+        }
+
+    }
+
     if (HostConfigFlags::flags.MuteHostErrorMsgIsEnabled)
     {
         return false;
@@ -1803,7 +1795,56 @@ bool WScriptJsrt::PrintException(LPCSTR fileName, JsErrorCode jsErrorCode)
         {
             AutoString errorMessage;
 
-            IfJsrtErrorFail(errorMessage.Initialize(exception), false);
+            if (errorMessage.Initialize(exception) != JsNoError)
+            {
+                fwprintf(stderr, _u("ERROR attempting to coerce error to string, using alternate handler\n"));
+                bool hasException = false;
+                ChakraRTInterface::JsHasException(&hasException);
+                if (hasException)
+                {
+                    JsValueRef throwAway = JS_INVALID_REFERENCE;
+                    ChakraRTInterface::JsGetAndClearException(&throwAway);
+                }
+                JsPropertyIdRef messagePropertyId = JS_INVALID_REFERENCE;
+                IfJsrtErrorFail(CreatePropertyIdFromString("message", &messagePropertyId), false);
+                JsValueRef message = JS_INVALID_REFERENCE;
+                IfJsrtErrorFail(ChakraRTInterface::JsGetProperty(exception, messagePropertyId, &message), false);
+                IfJsrtErrorFail(errorMessage.Initialize(message), false);
+
+                if (jsErrorCode != JsErrorCode::JsErrorScriptCompile)
+                {
+                    CHAR shortFileName[_MAX_PATH];
+                    CHAR ext[_MAX_EXT];
+                    _splitpath_s(fileName, nullptr, 0, nullptr, 0, shortFileName, _countof(shortFileName), ext, _countof(ext));
+
+                    if (metaData != JS_INVALID_REFERENCE)
+                    {
+                        JsPropertyIdRef linePropertyId = JS_INVALID_REFERENCE;
+                        JsValueRef lineProperty = JS_INVALID_REFERENCE;
+
+                        JsPropertyIdRef columnPropertyId = JS_INVALID_REFERENCE;
+                        JsValueRef columnProperty = JS_INVALID_REFERENCE;
+                        
+                        int line;
+                        int column;
+                        
+                        IfJsrtErrorFail(CreatePropertyIdFromString("line", &linePropertyId), false);
+                        IfJsrtErrorFail(ChakraRTInterface::JsGetProperty(metaData, linePropertyId, &lineProperty), false);
+                        IfJsrtErrorFail(ChakraRTInterface::JsNumberToInt(lineProperty, &line), false);
+
+                        IfJsrtErrorFail(CreatePropertyIdFromString("column", &columnPropertyId), false);
+                        IfJsrtErrorFail(ChakraRTInterface::JsGetProperty(metaData, columnPropertyId, &columnProperty), false);
+                        IfJsrtErrorFail(ChakraRTInterface::JsNumberToInt(columnProperty, &column), false);
+                        fwprintf(stderr, _u("%ls\n        at code (%S%S:%d:%d)\n"),
+                            errorMessage.GetWideString(), shortFileName, ext, line + 1, column + 1);
+                    }
+                    else
+                    {
+                        fwprintf(stderr, _u("%ls\n\tat code (%S%S:\?\?:\?\?)\n"), errorMessage.GetWideString(), shortFileName, ext);
+                    }
+                    return true;
+                }
+            }
 
             if (jsErrorCode == JsErrorCode::JsErrorScriptCompile)
             {
@@ -1992,21 +2033,7 @@ HRESULT WScriptJsrt::ModuleMessage::Call(LPCSTR fileName)
             errorCode = ChakraRTInterface::JsModuleEvaluation(moduleRecord, &result);
             if (errorCode != JsNoError)
             {
-                if (moduleErrMap[moduleRecord] == RootModule)
-                {
-                    PrintException(fileName, errorCode);
-                }
-                else
-                {
-                    bool hasException = false;
-                    ChakraRTInterface::JsHasException(&hasException);
-                    if (hasException)
-                    {
-                        JsValueRef exception;
-                        ChakraRTInterface::JsGetAndClearException(&exception);
-                        exception; //unusued
-                    }
-                }
+                PrintException(fileName, errorCode); // this should not be called
             }
         }
     }
@@ -2037,6 +2064,17 @@ HRESULT WScriptJsrt::ModuleMessage::Call(LPCSTR fileName)
     }
 Error:
     return errorCode;
+}
+
+JsErrorCode WScriptJsrt::ReportModuleCompletionCallback(JsModuleRecord module, JsValueRef exception)
+{
+    if (exception != nullptr)
+    {
+        JsValueRef specifier = JS_INVALID_REFERENCE;
+        ChakraRTInterface::JsGetModuleHostInfo(module, JsModuleHostInfo_Url, &specifier);
+        PrintException(AutoString(specifier).GetString(), JsErrorCode::JsErrorScriptException, exception);
+    }
+    return JsNoError;
 }
 
 JsErrorCode WScriptJsrt::FetchImportedModuleHelper(JsModuleRecord referencingModule,
@@ -2070,7 +2108,6 @@ JsErrorCode WScriptJsrt::FetchImportedModuleHelper(JsModuleRecord referencingMod
     if (errorCode == JsNoError)
     {
         GetDir(fullPath, &moduleDirMap[moduleRecord]);
-        InitializeModuleInfo(moduleRecord);
         std::string pathKey = std::string(fullPath);
         moduleRecordMap[pathKey] = moduleRecord;
         moduleErrMap[moduleRecord] = ImportedModule;
@@ -2112,12 +2149,11 @@ JsErrorCode WScriptJsrt::FetchImportedModuleFromScript(_In_ JsSourceContext dwRe
     return FetchImportedModuleHelper(nullptr, specifier, dependentModuleRecord);
 }
 
-// Callback from chakraCore when the module resolution is finished, either successfuly or unsuccessfully.
+// Callback from chakraCore when the module resolution is finished, either successfully or unsuccessfully.
 JsErrorCode WScriptJsrt::NotifyModuleReadyCallback(_In_opt_ JsModuleRecord referencingModule, _In_opt_ JsValueRef exceptionVar)
 {
-    if (exceptionVar != nullptr)
+    if (exceptionVar != nullptr && HostConfigFlags::flags.TraceHostCallbackIsEnabled)
     {
-        ChakraRTInterface::JsSetException(exceptionVar);
         JsValueRef specifier = JS_INVALID_REFERENCE;
         ChakraRTInterface::JsGetModuleHostInfo(referencingModule, JsModuleHostInfo_Url, &specifier);
         AutoString fileName;
@@ -2125,19 +2161,10 @@ JsErrorCode WScriptJsrt::NotifyModuleReadyCallback(_In_opt_ JsModuleRecord refer
         {
             fileName.Initialize(specifier);
         }
-
-        if (HostConfigFlags::flags.TraceHostCallbackIsEnabled)
-        {
-            wprintf(_u("NotifyModuleReadyCallback(exception) %S\n"), fileName.GetString());
-        }
-
-        // No need to print - just consume the exception
-        JsValueRef exception;
-        ChakraRTInterface::JsGetAndClearException(&exception);
-        exception; // unused
+        wprintf(_u("NotifyModuleReadyCallback(exception) %S\n"), fileName.GetString());
     }
     
-    if (exceptionVar != nullptr || moduleErrMap[referencingModule] != ErroredModule)
+    if (moduleErrMap[referencingModule] != ErroredModule)
     {
         WScriptJsrt::ModuleMessage* moduleMessage =
             WScriptJsrt::ModuleMessage::Create(referencingModule, nullptr);

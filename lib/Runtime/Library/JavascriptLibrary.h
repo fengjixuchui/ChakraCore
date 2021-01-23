@@ -18,18 +18,9 @@ CompileAssert(MaxPreInitializedObjectTypeInlineSlotCount <= USHRT_MAX);
 
 class ScriptSite;
 class ActiveScriptExternalLibrary;
-class ProjectionExternalLibrary;
 class EditAndContinue;
 class ChakraHostScriptContext;
 class JsrtExternalType;
-
-#ifdef ENABLE_PROJECTION
-namespace Projection
-{
-    class ProjectionContext;
-    class WinRTPromiseEngineInterfaceExtensionObject;
-}
-#endif
 
 namespace Js
 {
@@ -178,11 +169,6 @@ namespace Js
         friend class JsBuiltInEngineInterfaceExtensionObject;
 #endif
         friend class ChakraHostScriptContext;
-#ifdef ENABLE_PROJECTION
-        friend class ProjectionExternalLibrary;
-        friend class Projection::WinRTPromiseEngineInterfaceExtensionObject;
-        friend class Projection::ProjectionContext;
-#endif
         static const char16* domBuiltinPropertyNames[];
 
     public:
@@ -270,7 +256,6 @@ namespace Js
         Field(DynamicType *) bigintTypeDynamic;
         Field(StaticType *) bigintTypeStatic;
         Field(DynamicType *) dateType;
-        Field(StaticType *) variantDateType;
         Field(DynamicType *) symbolTypeDynamic;
         Field(StaticType *) symbolTypeStatic;
         Field(DynamicType *) iteratorResultType;
@@ -788,7 +773,6 @@ namespace Js
         DynamicType * GetArrayBufferType() const { return arrayBufferType; }
         StaticType  * GetStringTypeStatic() const { return stringCache.GetStringTypeStatic(); }
         DynamicType * GetStringTypeDynamic() const { return stringTypeDynamic; }
-        StaticType  * GetVariantDateType() const { return variantDateType; }
         void EnsureDebugObject(DynamicObject* newDebugObject);
         DynamicObject* GetDebugObject() const { Assert(debugObject != nullptr); return debugObject; }
         DynamicType * GetMapType() const { return mapType; }
@@ -1034,6 +1018,7 @@ namespace Js
         JavascriptGeneratorFunction* CreateGeneratorFunction(JavascriptMethod entryPoint, bool isAnonymousFunction);
         JavascriptAsyncGeneratorFunction* CreateAsyncGeneratorFunction(JavascriptMethod entryPoint, GeneratorVirtualScriptFunction* scriptFunction);
         AsyncGeneratorCallbackFunction* CreateAsyncGeneratorCallbackFunction(JavascriptMethod entryPoint, JavascriptAsyncGenerator* generator);
+        RuntimeFunction* CreateAsyncModuleCallbackFunction(JavascriptMethod entryPoint, SourceTextModuleRecord* module);
         JavascriptAsyncFunction* CreateAsyncFunction(JavascriptMethod entryPoint, GeneratorVirtualScriptFunction* scriptFunction);
         JavascriptAsyncFunction* CreateAsyncFunction(JavascriptMethod entryPoint, bool isAnonymousFunction);
         JavascriptAsyncSpawnStepFunction* CreateAsyncSpawnStepFunction(JavascriptMethod entryPoint, JavascriptGenerator* generator, Var argument, Var resolve = nullptr, Var reject = nullptr, bool isReject = false);
@@ -1076,8 +1061,6 @@ namespace Js
         template<> JavascriptString* CreateStringFromCppLiteral(const char16 (&value)[1]) const; // Specialization for empty string
         template<> JavascriptString* CreateStringFromCppLiteral(const char16 (&value)[2]) const; // Specialization for single-char strings
         PropertyString* CreatePropertyString(const Js::PropertyRecord* propertyRecord);
-
-        JavascriptVariantDate* CreateVariantDate(const double value);
 
         JavascriptBooleanObject* CreateBooleanObject(BOOL value);
         JavascriptBooleanObject* CreateBooleanObject();
@@ -1304,9 +1287,6 @@ namespace Js
         static bool __cdecl InitializeIntlObject(DynamicObject* IntlEngineObject, DeferredTypeHandlerBase * typeHandler, DeferredInitializeMode mode);
 #endif
 
-#ifdef ENABLE_PROJECTION
-        void InitializeWinRTPromiseConstructor();
-#endif
         static bool __cdecl JavascriptLibrary::InitializeAsyncIteratorPrototype(DynamicObject* asyncIteratorPrototype, DeferredTypeHandlerBase * typeHandler, DeferredInitializeMode mode);
         static bool __cdecl InitializeIteratorPrototype(DynamicObject* iteratorPrototype, DeferredTypeHandlerBase * typeHandler, DeferredInitializeMode mode);
         static bool __cdecl InitializeArrayIteratorPrototype(DynamicObject* arrayIteratorPrototype, DeferredTypeHandlerBase * typeHandler, DeferredInitializeMode mode);

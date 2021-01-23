@@ -531,8 +531,8 @@ MACRO_WMS(              StArrSegItem_CI4,       ElementUnsigned1,      OpSideEff
 MACRO(                  StArrSegItem_A,         Auxiliary,      OpSideEffect)
 MACRO_WMS(              DeleteElemI_A,          ElementI,       OpSideEffect|OpHasImplicitCall|OpPostOpDbgBailOut)                  // Remove from instance's indirect element / field, checked
 MACRO_WMS(              DeleteElemIStrict_A,    ElementI,       OpSideEffect|OpHasImplicitCall|OpPostOpDbgBailOut)                  // Remove from instance's indirect element / field, checked
-MACRO_EXTEND_WMS(       InitSetFld,             ElementC,       OpSideEffect|OpOpndHasImplicitCall|OpFastFldInstr|OpPostOpDbgBailOut)   // Set in Object Literal Syntax {set prop(args){}};
-MACRO_EXTEND_WMS(       InitGetFld,             ElementC,       OpSideEffect|OpOpndHasImplicitCall|OpFastFldInstr|OpPostOpDbgBailOut)   // Get in Object Literal Syntax {get prop(){}};
+MACRO_EXTEND_WMS(       InitSetFld,             ElementC,       OpSideEffect|OpOpndHasImplicitCall|OpPostOpDbgBailOut)                  // Set in Object Literal Syntax {set prop(args){}};
+MACRO_EXTEND_WMS(       InitGetFld,             ElementC,       OpSideEffect|OpOpndHasImplicitCall|OpPostOpDbgBailOut)                  // Get in Object Literal Syntax {get prop(){}};
 MACRO_EXTEND_WMS(       InitSetElemI,           ElementI,       OpSideEffect|OpOpndHasImplicitCall|OpPostOpDbgBailOut)                  // Set in Object Literal Syntax {set [expr](args){}};
 MACRO_EXTEND_WMS(       InitGetElemI,           ElementI,       OpSideEffect|OpOpndHasImplicitCall|OpPostOpDbgBailOut)                  // Get in Object Literal Syntax {get [expr](args){}};
 MACRO_EXTEND_WMS(       InitComputedProperty,   ElementI,       OpSideEffect|OpOpndHasImplicitCall|OpPostOpDbgBailOut)                  // Data property in Object Literal Syntax { [expr] : expr};
@@ -625,7 +625,7 @@ MACRO_EXTEND_WMS(       NewScGenFuncHomeObj,       ElementSlot,      OpSideEffec
 MACRO_EXTEND_WMS(       NewInnerScFuncHomeObj,     ElementSlotI3,    OpSideEffect)   // Create new ScriptFunction instance that has home object
 MACRO_EXTEND_WMS(       NewInnerScGenFuncHomeObj,  ElementSlotI3,    OpSideEffect)   // Create new JavascriptGeneratorFunction instance that has home object
 MACRO_EXTEND_WMS(       NewAsyncFromSyncIterator,  Reg2,    OpSideEffect)   // Create new JavascriptAsyncFromSyncOperator instance
-MACRO_EXTEND_WMS(       NewAwaitObject,     Reg2,           OpSideEffect)   // Create new internal await object instance
+MACRO_EXTEND_WMS(       NewAwaitObject,     Reg1,           OpSideEffect)   // Create new internal await object instance
 MACRO_BACKEND_ONLY(     NewScopeObject,     Reg1,           None)                       // Create new NewScopeObject
 MACRO_BACKEND_ONLY(     InitCachedScope,    Reg2Aux,        None)                   // Retrieve cached scope; create if not cached
 MACRO_BACKEND_ONLY(     InitLetCachedScope, Reg2Aux,        OpSideEffect)                   // Retrieve cached scope; create if not cached (formals are let-like instead of var-like)
@@ -803,11 +803,6 @@ MACRO_BACKEND_ONLY(     CheckObjType,        Empty,          OpFastFldInstr|OpTe
 MACRO_BACKEND_ONLY(     AdjustObjType,       Empty,          OpSideEffect)
 MACRO_BACKEND_ONLY(     AdjustObjTypeReloadAuxSlotPtr,       Empty,          OpSideEffect)
 
-                                                                                                            // Edge inline built-ins
-#ifdef ENABLE_DOM_FAST_PATH
-MACRO_BACKEND_ONLY(     DOMFastPathGetter,   Empty,          OpCanCSE)  // unlike other builtins, we don't know the return type
-MACRO_BACKEND_ONLY(     DOMFastPathSetter,   Empty,          OpSideEffect)
-#endif
 MACRO_BACKEND_ONLY(     ExtendArg_A,         Empty,          OpCanCSE)  // extend a list of arguments to be passed to functions.
 
 #ifdef _M_X64

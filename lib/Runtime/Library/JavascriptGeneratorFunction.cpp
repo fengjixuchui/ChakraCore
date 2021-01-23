@@ -65,7 +65,7 @@ using namespace Js;
         JS_ETW(EventWriteJSCRIPT_RECYCLER_ALLOCATE_FUNCTION(scriptFunction, EtwTrace::GetFunctionId(functionProxy)));
 
         JavascriptGeneratorFunction* genFunc = nullptr;
-        if (functionProxy->IsAsync())
+        if (functionProxy->IsAsync() && !functionProxy->IsModule())
         {
             if (functionProxy->IsGenerator())
             {
@@ -111,7 +111,8 @@ using namespace Js;
         auto* library = scriptContext->GetLibrary();
         auto* generatorFunction = VarTo<JavascriptGeneratorFunction>(function);
 
-        DynamicObject* prototype = library->CreateGeneratorConstructorPrototypeObject();
+        DynamicObject* prototype = VarTo<DynamicObject>(JavascriptOperators::GetPropertyNoCache(
+            function, Js::PropertyIds::prototype, scriptContext));
 
         JavascriptGenerator* generator = library->CreateGenerator(
             args,
@@ -126,13 +127,6 @@ using namespace Js;
         END_SAFE_REENTRANT_CALL
 
         generator->SetSuspendedStart();
-
-        // Set the prototype from constructor
-        JavascriptOperators::OrdinaryCreateFromConstructor(
-            function,
-            generator,
-            prototype,
-            scriptContext);
 
         return generator;
     }
